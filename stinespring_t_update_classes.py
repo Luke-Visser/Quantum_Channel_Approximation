@@ -26,7 +26,7 @@ class stinespring_unitary_update:
 
     def __init__(self, m=2, error_type = 'density rho', circuit_type = 'xy', par_dict = {}):
         """
-        Settings for quantum simulations with the kernel trick
+        Settings for quantum simulations
 
         Parameters
         ----------
@@ -110,7 +110,7 @@ class stinespring_unitary_update:
             
     def time_wrapper(func):
         """
-        Decorator to time class methods.
+        Decorator to measure the time taken by class methods.
         Modify the function to time the total function evaluation time and
         count the number of method calls. Data is saved as class paramater as
         'timed_{}' and 'calls_{}' with {} = function name
@@ -356,33 +356,33 @@ class stinespring_unitary_update:
                 rho = self.steady_state
             else:
                 
-# =============================================================================
-#                 # Pure initialization
-#                 random_ket = qt.rand_ket_haar(dims = [[2**m], [1]], seed = seed)
-#                 random_ket.dims = [[2]*m,[2]*m]
-#                 random_bra = random_ket.dag()
-#                 rho = (random_ket * random_bra).full()
-# =============================================================================
+                # Pure initialization
+                random_ket = qt.rand_ket_haar(dims = [[2**m], [1]])
+                random_ket.dims = [[2]*m,[2]*m]
+                random_bra = random_ket.dag()
+                rho = (random_ket * random_bra).full()
                 
-                # Mixed initialization, randomly sets the eigenvalues s.t.
-                # sum_i lambda_i = 1
-                mix_factor = np.random.rand()**1/2
-
-                evals = np.random.normal(size = 2**m)
-                evals = evals**2/np.sum(evals**2)
-                
-                #print("Purity of initial state: {:.2f} with evals \n    {}".format(sum(evals**2), np.sort(evals)))
-
-                #zero matrix
-                zero_mat = np.zeros((2**m,2**m))
-                zero_mat[0,0] = 1
-
-                # mixed matrix
-                init_matrix = mix_factor*zero_mat + (1-mix_factor)*np.diag(evals)
-                random_mixed = qt.Qobj(init_matrix, dims = [[2]*m, [2]*m])
-
-                U = qt.random_objects.rand_unitary_haar(N = 2**m, dims = [[2]*m, [2]*m])
-                rho = (U*random_mixed*U.dag()).full()
+# =============================================================================
+#                 # Mixed initialization, randomly sets the eigenvalues s.t.
+#                 # sum_i lambda_i = 1
+#                 mix_factor = np.random.rand()**1/2
+# 
+#                 evals = np.random.normal(size = 2**m)
+#                 evals = evals**2/np.sum(evals**2)
+#                 
+#                 #print("Purity of initial state: {:.2f} with evals \n    {}".format(sum(evals**2), np.sort(evals)))
+# 
+#                 #zero matrix
+#                 zero_mat = np.zeros((2**m,2**m))
+#                 zero_mat[0,0] = 1
+# 
+#                 # mixed matrix
+#                 init_matrix = mix_factor*zero_mat + (1-mix_factor)*np.diag(evals)
+#                 random_mixed = qt.Qobj(init_matrix, dims = [[2]*m, [2]*m])
+# 
+#                 U = qt.random_objects.rand_unitary_haar(N = 2**m, dims = [[2]*m, [2]*m])
+#                 rho = (U*random_mixed*U.dag()).full()
+# =============================================================================
             
             training[:,l,:,:] = np.reshape(self.evolution_n(t_repeated, rho),(t_repeated+1, 2**m,2**m))
             
@@ -406,10 +406,16 @@ class stinespring_unitary_update:
         self.pauli_id_list = pauli_id_list
         self.pauli_indices = pauli_indices
         
-
+        
+    @time_wrapper
+    def calc_U_training_error(self, theta, gate_par, update = True):
+        if update:
+            self.U = self.circuit.gate_circuit(theta=theta, n= self.repeat, gate_par = gate_par)
+        return self.U
+    
     @time_wrapper
     def training_error(self, theta_phi, weights = 0, error_type = 'internal',
-                       incl_lambda = True):
+                       incl_lambda = True, update = True):
         """
         Determines the error of the circuit for a given set of parameters and a
         given error type
@@ -445,7 +451,8 @@ class stinespring_unitary_update:
         theta, gate_par = self.reshape_theta_phi(theta_phi)
         
         time0 = time.time()
-        U = self.circuit.gate_circuit(theta = theta, n=self.repeat, gate_par = gate_par)
+        #U = self.circuit.gate_circuit(theta = theta, n=self.repeat, gate_par = gate_par)
+        U = self.calc_U_training_error(theta=theta, gate_par = gate_par, update = update)
         time1 = time.time()
         self.time_circuit += time1-time0
         
@@ -684,29 +691,41 @@ class stinespring_unitary_update:
             for t in range(self.Zdt):
                 for k in range(0,num_controls):
                     updatepart = np.trace(-2j *self.control_H[k,1].full() @ (U_full[t].full() @ (eta_t_sum - eta_t_sum_dag) @U_full[t].dag().full() ) )
-                    gradient[k,t,0] = self.lambdapar *theta[k,t,0] - np.real(updatepart)
-                    gradient[k,t,1] = self.lambdapar *theta[k,t,1] - np.imag(updatepart)
+                    gradient[k,t,0] = (self.lambdapar *theta[k,t,0] - np.real(updatepart))#*(0.8+0.4*np.random.rand())
+                    gradient[k,t,1] = (self.lambdapar *theta[k,t,1] - np.imag(updatepart))#*(0.8+0.4*np.random.rand())
             
             return gradient
         
         else:
-            theta_p = theta.copy()
-            theta_m = theta.copy()
-            grad_theta = np.zeros(theta.shape)
-            
-            if self.n_grad_directions != -1:
-                optimize_indices = rd.sample(list(range(len(theta))), self.n_grad_directions)
-            else:
-                optimize_indices = range(len(theta))
+            if self.error_type == "pauli string":
+                update_theta = np.zeros(theta.shape)
+                grad_theta = np.zeros(theta.shape)
+                if self.n_grad_directions != -1:
+                    optimize_indices = rd.sample(list(range(len(theta))), self.n_grad_directions)
+                else:
+                    optimize_indices = range(len(theta))
                 
-            for i in optimize_indices:
-                theta_p[i] = theta_p[i] + eps
-                theta_m[i] = theta_m[i] - eps
-                if math.isnan(theta_p[i]) or math.isnan(theta_m[i]):
-                    print("component {} gives a nan".format(i),theta_p[i], theta_m[i])
-                grad_theta[i] = np.real(self.training_error(theta_p) - self.training_error(theta_m))/(2*eps)
-                theta_p[i] = theta_p[i] - eps
-                theta_m[i] = theta_m[i] + eps
+                for i in optimize_indices:
+                    self.training_error(i, update=True)
+            else:
+                
+                theta_p = theta.copy()
+                theta_m = theta.copy()
+                grad_theta = np.zeros(theta.shape)
+                
+                if self.n_grad_directions != -1:
+                    optimize_indices = rd.sample(list(range(len(theta))), self.n_grad_directions)
+                else:
+                    optimize_indices = range(len(theta))
+                    
+                for i in optimize_indices:
+                    theta_p[i] = theta_p[i] + eps
+                    theta_m[i] = theta_m[i] - eps
+                    if math.isnan(theta_p[i]) or math.isnan(theta_m[i]):
+                        print("component {} gives a nan".format(i),theta_p[i], theta_m[i])
+                    grad_theta[i] = np.real(self.training_error(theta_p) - self.training_error(theta_m))/(2*eps)
+                    theta_p[i] = theta_p[i] - eps
+                    theta_m[i] = theta_m[i] + eps
                 
             return grad_theta
     
@@ -769,7 +788,7 @@ class stinespring_unitary_update:
                 
             update_theta = theta -sigma*grad_theta
             
-            update_fid = self.training_error(update_theta, weights = self.weights)
+            update_fid = self.training_error(update_theta, weights = self.weights, update=True)
      
             if update_fid -fid < -(gamma*sigma*np.sum(np.multiply(grad_theta, grad_theta))):
                 descended=True

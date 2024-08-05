@@ -11,6 +11,8 @@ import qutip as qt
 import time
 import re
 from my_functions import generate_gate_connections
+import random as rd
+import math
 
 class U_circuit:
 
@@ -86,8 +88,17 @@ class U_circuit:
             gate = np.kron(gate,gate_single)
         return gate
     
-    def gate_circuit(self, theta, gate_par=1.0, n=1): #phi=0.0, n=1, gammat = 1.0, t_ryd = 0.1):
+    def gate_circuit(self, theta, gate_par=1.0, n=1):
+        (qc, U_p, U_m) = self.gate_circuit_U(theta, gate_par=gate_par, n=n)
+        return qc
+        
+    
+    def gate_circuit_U(self, theta, gate_par=1.0, n=1): #phi=0.0, n=1, gammat = 1.0, t_ryd = 0.1):
         depth, m = theta[:,:,0].shape
+        
+        #Find cumulative matrices
+        U_p = [np.eye(2**m)]*(4*depth-1)
+        U_m = [np.eye(2**m)]*(4*depth-1)
         
         if type(gate_par) == float or type(gate_par) == int:
             gate_par = np.zeros([depth-1, len(self.pairs)]) + gate_par
@@ -110,11 +121,48 @@ class U_circuit:
             print("U_circuit class: Theta range incorrect. m={} given, circuit defined on m={}".format(m, self.m))
             return np.eye(2**m)
         
+        #backward cumulative unitary matrices
         qc = np.eye(2**m)
-        offset = np.array([k%2 for k in range(depth)])
-        offset[depth//2:] = (offset[depth//2:]+1)%2
+        
+        #last gates first
+        qc = qc @self._rz_gate(theta[depth-1,:,2])
+        U_p[4*depth-2] = qc
+        qc = qc @self._rx_gate(theta[depth-1,:,1])
+        U_p[4*depth-3] = qc
+        qc = qc @self._rz_gate(theta[depth-1,:,0])
+        U_p[4*depth-4] = qc
+        
+        for k in range(depth-2, 0, -1):
+            #first entangle gate
+            try:
+                self.entangle_gate(gate_par=gate_par[k,:])
+            except ValueError:
+                print("Problem in circuit gate generation")
+                print(gate_par)
+                print(gate_par[k,:])
+                raise
+            qc = qc @self.entangle_gate(gate_par=gate_par[k,:])
+            U_p[4*k+3] = qc
+            
+            qc = qc @self._rz_gate(theta[k,:,2])
+            U_p[4*k+2] = qc
+            qc = qc @self._rx_gate(theta[k,:,1])
+            U_p[4*k+1] = qc
+            qc = qc @self._rz_gate(theta[k,:,0])
+            U_p[4*k] = qc
+                  
+        
+        # forward cumulative unitary matrices
+        qc = np.eye(2**m)
         for k in range(depth-1):
-            qc = qc @self._rz_gate(theta[k,:,0]) @self._rx_gate(theta[k,:,1]) @self._rz_gate(theta[k,:,2])
+            qc = qc @self._rz_gate(theta[k,:,0])
+            U_p[4*k] = qc
+            qc = qc @self._rx_gate(theta[k,:,1])
+            U_p[4*k+1] = qc
+            qc = qc @self._rz_gate(theta[k,:,2])
+            U_p[4*k+2] = qc
+            
+            #qc = qc @self._rz_gate(theta[k,:,0]) @self._rx_gate(theta[k,:,1]) @self._rz_gate(theta[k,:,2])
             #print(self.entangle_gate(gate_par=gate_par[k,:]))
             try:
                 self.entangle_gate(gate_par=gate_par[k,:])
@@ -124,13 +172,24 @@ class U_circuit:
                 print(gate_par[k,:])
                 raise
             qc = qc @self.entangle_gate(gate_par=gate_par[k,:])
+            U_p[4*k+3] = qc
+            
+        # last closing set of rotations
+        qc = qc @self._rz_gate(theta[depth-1,:,0])
+        U_p[4*depth-4] = qc
+        qc = qc @self._rx_gate(theta[depth-1,:,1])
+        U_p[4*depth-3] = qc
+        qc = qc @self._rz_gate(theta[depth-1,:,2])
+        U_p[4*depth-2] = qc
             
         if self.t_ham: #0 is false, anything else is true
-            qc = qc @ sc.linalg.expm(-1j*self.t_ham*np.kron(self.H,np.eye(2**(m//2 +1)))/n)
+            #print("Using Hamiltonian (?)")
+            #qc = qc @ sc.linalg.expm(-1j*self.t_ham*np.kron(self.H,np.eye(2**(m//2 +1)))/n)
+            pass
             
-        qc = qc @ np.linalg.matrix_power(qc, n)
+        #qc = qc @ np.linalg.matrix_power(qc, n)
         
-        qc = qc @self._rz_gate(theta[-1,:,0]) @self._rx_gate(theta[-1,:,1]) @self._rz_gate(theta[-1,:,2])
+        #qc = qc @self._rz_gate(theta[-1,:,0]) @self._rx_gate(theta[-1,:,1]) @self._rz_gate(theta[-1,:,2])
         
 # =============================================================================
 #         if self.t_ham: #0 is false, anything else is true
@@ -139,8 +198,10 @@ class U_circuit:
         
         #partial_U1 = np.trace(qc.reshape(2**(m//2),2**(m//2),2**(m//2),2**(m//2)), axis1=0, axis2=2)
         #partial_U2 = np.trace(qc.reshape(2**(m//2),2**(m//2),2**(m//2),2**(m//2)), axis1=1, axis2=3)
-
-        return qc
+        self.Up = U_p
+        self.Um = U_m
+        return qc, U_p, U_m
+    
     
 class Function:
     def __init__(self, qubit, sign, endtime, values):

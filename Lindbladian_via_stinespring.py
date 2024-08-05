@@ -20,30 +20,30 @@ from Stinespring_unitary_circuits import generate_gate_connections
 
 #%% Initialization of parameters
 save_figs = False                   # Save figures as pdf and svg
-name = 'test run'                   # name to prepend to all saved figures
+name = 'test run 4lvl'                   # name to prepend to all saved figures
 
 # General parameters
-m = 1
+m = 2
 n_training = 10                    # Number of initial rho's to check, last one is steady state
-nt_training = 2                     # Number of repeated timesteps per rho
+nt_training = 4                    # Number of repeated timesteps per rho
 prediction_iterations = 20          # Number of reaplications of the found unitary to check for evolution of errors
 seed = 4                            # Seed for random initial rho's
 error_type = 'pauli trace'          # Type of error: "measurement n", "pauli trace", "bures", "trace", 'wasserstein', 'trace product' 
-steadystate_weight = 0.5              # Weight given to steady state density matrix in calculation of error
+steadystate_weight = 0              # Weight given to steady state density matrix in calculation of error
 pauli_type = 'full'              # Pauli spin matrices to take into account. 
                                     # Options: 'full', 'order k' for k-local, 'random n'
                                     
-circuit_type = 'pulse based'            # Gate type used to entangle, 
+circuit_type = 'ryd'            # Gate type used to entangle, 
                                     #   choose: cnot, ryd, xy, decay, with varied parameters
                                     # choose: 'pulse based'
-qubit_structure = 'triangle d = 0.9'        # structure of qubits: pairs, loose_pairs, triangle, line
-                                    # add d = some number to scale the distance between all qubits
+qubit_structure = 'triangle d = 0.85'        # structure of qubits: pairs, loose_pairs, triangle, line
+                                    # add d = [some number] to scale the distance between all qubits
 
 # Gate based circuit parameters
 cutoff = False                       # Cutoff interactions above distance 1 for gate based circuit
 depth = 10                           # Depth of simulation circuit (depth-1 entanglement gates)
-repeats = 2                         # Number of identical circuits (depth-1), with applying exp(itH)
-n_grad_directions = 25              # Number of parameters to calculate the gradient for simultaneous 
+repeats = 1                         # Number of identical circuits (depth-1), with applying exp(itH)
+n_grad_directions = 20              # Number of parameters to calculate the gradient for simultaneous 
                                     # (for stochastic gradient descend), set to -1 for full gradient
 
 phi = np.pi/10                      # Initial phi guess (for xy and xy_var)
@@ -52,15 +52,15 @@ gammat = 0.1                        # Decay rate for decay entangle gate
 
 
 # Pulse based parameters
-T_pulse = 20                         # Pulse duration 
+T_pulse = 10                         # Pulse duration 
 driving_H_interaction = 'rydberg11'   # basic11, rydberg11, dipole0110
-control_H = 'realrotations+11'             # Control Hamiltonian ('rotations' or 'realrotations', +11 for detuning)
+control_H = 'rotations+11'             # Control Hamiltonian ('rotations' or 'realrotations', +11 for detuning)
 lambdapar = 10**(-4)                # Weight on L2 norm of pulse
 Zdt = 101                           # number of segments of the pulse that are optimized separately
 
 
 # Armijo gradient descend parameters
-max_it_training = 50    # Max number of Armijo steps in the gradient descend
+max_it_training = 125    # Max number of Armijo steps in the gradient descend
 sigmastart = 10          # Starting sigma
 gamma = 10**(-4)        # Armijo update criterion
 epsilon = 10**(-4)      # Finite difference stepsize for gate based gradient
@@ -69,24 +69,30 @@ epsilon = 10**(-4)      # Finite difference stepsize for gate based gradient
 from_lindblad = True
 
 # Lindblad equation parameters
-lb_type = 'tfim' # Type of quantum channel to approx, 
+lb_type = 'decay' # Type of quantum channel to approx, 
                     # 'decay' is decay, rabi oscillations per qubit and rydberg interaction
                     # 'tfim' is transverse field ising model with decay
+                    # '4level' is 4 levels (only defined for 2 qubits)
 t_lb = 0.5       # Evolution time steps
-gam0 = 0.35     # Decay rate qubit 1
-gam1 = 0.3      # Decay rate qubit 2
+gam0 = 0.25     # Decay rate qubit 1
+gam1 = 0.15      # Decay rate qubit 2
 gam2 = 0.2      # Decay rate qubit 3
 gam3 = 0.1      #
 
 #type 'decay', rabi oscillations:
-om0 = 0.3         # Rabi oscillation frequency qubit 1
-om1 = 0.5        # Hamiltonian forcing strength qubit 2
+om0 = 0.         # Rabi oscillation frequency qubit 1
+om1 = 0.        # Hamiltonian forcing strength qubit 2
 om2 = 0.35      # Hamiltonian forcing strength qubit 3
 ryd_interaction = 0.2 # 0.2 #Rydberg interaction strength between the qubits
 
 #tfim:
 j_en = 0.4    # neighbour-neighbour coupling strength for transverse field ising model
 h_en = 0.5    # Transverse magnetic field strength
+
+# 4 level system
+#|3>=|10>,  |2> =|11>, |1> = |01>, and |0> = |00>
+gam = [0.5,0.4,0.1] # decay rates 3 -> 2 -> 1 -> 0
+om = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # oscillations 0-1, 0-2, 0-3, 1-2, 1-3, 2-3
 
 #### Set parameter dependent things ####
 
@@ -182,7 +188,7 @@ stinespring_class = stinespring_unitary_update(m, error_type = error_type, circu
 # Pauli spin matrices
 Id = np.array([[1,0],[0,1]])
 X = np.array([[0,1],[1,0]])
-Y = np.array([[0,1j],[-1j,0]])
+Y = np.array([[0,-1j],[1j,0]])
 Z = np.array([[1,0],[0,-1]])
 
 if from_lindblad:
@@ -211,6 +217,20 @@ if from_lindblad:
             # Transverse field Ising model Hamiltonian
             H = j_en *(np.kron(Z, Id) @np.kron(Id, Z)) \
                 - h_en *(np.kron(X,Id)+np.kron(Id,X))
+                
+        elif lb_type == '4level':
+            An = np.array([ \
+                           [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,gam[0],0]], #|3>=|10> to |2> =|11>
+                           [[0,0,0,0],[0,0,0,gam[1]],[0,0,0,0],[0,0,0,0]], #|2> =|11> to |1> = |01>
+                           [[0,gam[2],0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]]) #|1> = |01> to |0> = |00>
+                
+            # oscillations 0-1, 0-2, 0-3, 1-2, 1-3, 2-3
+            H = om[0]*np.array([[0,1,0,0],[1,0,0,0],[0,0,0,0],[0,0,0,0]]) \
+                + om[1]*np.array([[0,0,0,1],[0,0,0,0],[0,0,0,0],[1,0,0,0]]) \
+                + om[2]*np.array([[0,0,1,0],[0,0,0,0],[1,0,0,0],[0,0,0,0]]) \
+                + om[3]*np.array([[0,0,0,0],[0,0,0,1],[0,0,0,0],[0,1,0,0]]) \
+                + om[4]*np.array([[0,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,0]]) \
+                + om[5]*np.array([[0,0,0,0],[0,0,0,0],[0,0,0,1],[0,0,1,0]])
                 
         else:
             print("Lindblad type {} invalid, quantum channel contains only simple decay".format(lb_type))
@@ -310,8 +330,6 @@ print("Unitary trained")
 # Set new rho0
 stinespring_class.set_training_data(n_training, seed+1, paulis = pauli_type, t_repeated = nt_training)
 
-# rho0 index for plotting
-rho_i = 0
 
 # Initialize empty arrays
 error = np.zeros(prediction_iterations)
@@ -331,9 +349,13 @@ for i, rho in enumerate(stinespring_class.training_data[0]):
 
 error = np.einsum('ij->j', trace_dist)/n_training
 
-ev_exact_full = np.real(stinespring_class.evolution_t(np.linspace(0,prediction_iterations*t_lb,200), stinespring_class.training_data[0,rho_i]))
 
 #%% Making plots
+
+# rho0 index for individual plotting
+rho_i = 5
+ev_exact_full = np.real(stinespring_class.evolution_t(np.linspace(0,prediction_iterations*t_lb,200), stinespring_class.training_data[0,rho_i]))
+
 
 name = name
 save_figs = save_figs
@@ -459,7 +481,7 @@ plt.ticklabel_format(axis='both', style='sci', scilimits=(-3,3))
 #box = ax.get_position()
 #ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
 #plt.legend(handles = legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
-plt.legend(handles = legend_elements, loc = 'lower right', ncols=2)
+#plt.legend(handles = legend_elements, loc = 'lower right', ncols=2)
 
 plt.xlabel(r"t $[T_{tqc}]$")
 plt.ylabel("Population")

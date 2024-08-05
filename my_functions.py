@@ -183,7 +183,7 @@ def p_print(text, *args, **kwargs):
 
 def Znorm(Z,T):
     """
-    Determines the L2 norm of the Zs
+    Determines the L2 norm of the Z pulse
 
     Parameters
     ----------
@@ -472,6 +472,12 @@ def generate_gate_connections(m, structure = 'triangle d=1', cutoff = True):
                     pairs.append((i, j, dist))
                 elif not cutoff:
                     pairs.append((i, j, dist))
+    
+    elif 'opposites' in structure and m == 5:
+        d = dist_scale**2
+        pairs = [(0,1,d),(0,2,d),(0,3,d),(0,4,d),(1,2,d),(1,3,d),(3,4,d),(1,4,d*3**1/2),(2,3,d* 3**1/2)]
+                
+    
     else:
         raise ValueError(structure + ' is not a specified atomic structure')
     
