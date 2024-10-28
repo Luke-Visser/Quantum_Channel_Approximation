@@ -1,4 +1,6 @@
 # Quantum_Channel_Approximation
+I messed up in properly using Github and trying to merge the different versions and functionalities and decided it would be easier to start a new repository.
+
 Python code for simulating quantum channels using quantum computers.
 
 Used python packages:
